@@ -186,7 +186,7 @@ fn read_saved_data(buffer: &mut impl Read) -> std::io::Result<(u32, i32, usize, 
 pub fn compute_delta_concurrent(
     res: &Resolution,
     max_s: u32,
-    max_t: i32,
+    max_f: i32,
     bucket: &TokenBucket,
     save_file_path: Option<String>,
 ) -> Vec<FMH> {
@@ -205,8 +205,11 @@ pub fn compute_delta_concurrent(
 
         for s in 3..=max_s {
             let m = res.module(s);
-            for t in min_degree + 1..=max_t {
-                processed.insert((s, t), m.number_of_gens_in_degree(t) as u32);
+            for f in min_degree..max_f {
+                processed.insert(
+                    (s, f + s as i32),
+                    m.number_of_gens_in_degree(f + s as i32) as u32,
+                );
             }
         }
 
@@ -246,9 +249,9 @@ pub fn compute_delta_concurrent(
         // and source_t, we pre-populate with None and replace with Some.
         for s in 3..=max_s {
             let m = res.module(s);
-            let mut v = BiVec::with_capacity(min_degree + 1, max_t + 1);
-            for t in min_degree + 1..=max_t {
-                v.push(vec![None; m.number_of_gens_in_degree(t)]);
+            let mut v = BiVec::with_capacity(min_degree, max_f);
+            for f in min_degree..max_f {
+                v.push(vec![None; m.number_of_gens_in_degree(s as i32 + f)]);
             }
             ddeltas.lock().unwrap().push(v);
         }
@@ -260,8 +263,9 @@ pub fn compute_delta_concurrent(
                 loop {
                     match read_saved_data(&mut f) {
                         Ok((s, t, idx, data)) => {
-                            if s <= max_s && t <= max_t {
-                                ddeltas.lock().unwrap()[s as usize - 3][t][idx] = Some(data);
+                            let f = t - s as i32;
+                            if s <= max_s && f <= max_f {
+                                ddeltas.lock().unwrap()[s as usize - 3][f][idx] = Some(data);
                                 p_sender.send((s, t)).unwrap();
                             }
                         }
@@ -295,10 +299,11 @@ pub fn compute_delta_concurrent(
             scope.spawn(move |_| loop {
                 let job = receiver.lock().unwrap().recv().ok();
 
-                if let Some((s, t, idx)) = job {
-                    if ddeltas.lock().unwrap()[s as usize - 3][t][idx].is_some() {
+                if let Some((s, f, idx)) = job {
+                    if ddeltas.lock().unwrap()[s as usize - 3][f][idx].is_some() {
                         continue;
                     }
+                    let t = s as i32 + f;
                     let target_dim = res.module(s - 3).dimension(t - 1);
                     let mut result = FpVector::new(TWO, target_dim);
 
@@ -314,9 +319,9 @@ pub fn compute_delta_concurrent(
                         drop(sf);
                     }
 
-                    ddeltas.lock().unwrap()[s as usize - 3][t][idx] = Some(result);
+                    ddeltas.lock().unwrap()[s as usize - 3][f][idx] = Some(result);
 
-                    p_sender.send((s, t)).unwrap();
+                    p_sender.send((s, f + s as i32)).unwrap();
                 } else {
                     break;
                 }
@@ -324,10 +329,10 @@ pub fn compute_delta_concurrent(
         }
 
         // Iterate in reverse order to do the slower ones first
-        for t in (min_degree + 1..=max_t).rev() {
+        for f in (min_degree..max_f).rev() {
             for s in 3..=max_s {
-                for idx in 0..res.module(s).number_of_gens_in_degree(t) {
-                    sender.send((s, t, idx)).unwrap();
+                for idx in 0..res.module(s).number_of_gens_in_degree(s as i32 + f) {
+                    sender.send((s, f, idx)).unwrap();
                 }
             }
         }
@@ -365,9 +370,10 @@ pub fn compute_delta_concurrent(
             scope.spawn(move |_| {
                 let delta = &deltas[s as usize - 3];
 
-                delta.extend_by_zero(min_degree);
+                delta.extend_by_zero(s as i32 - 1);
                 let mut token = bucket.take_token();
-                for (t, mut ddelta) in ddeltas_.into_iter_enum() {
+                for (f, mut ddelta) in ddeltas_.into_iter_enum() {
+                    let t = s as i32 + f;
                     token = bucket.recv_or_release(token, &last_receiver);
 
                     let num_gens = source_module.number_of_gens_in_degree(t);
@@ -383,18 +389,6 @@ pub fn compute_delta_concurrent(
                                 t,
                                 source_d.output(t, idx).as_slice(),
                             );
-                        }
-
-                        #[cfg(debug_assertions)]
-                        if s > 3 {
-                            let mut r = FpVector::new(TWO, res.module(s - 4).dimension(t - 1));
-                            res.differential(s - 3).apply(
-                                r.as_slice_mut(),
-                                1,
-                                t - 1,
-                                row.as_slice(),
-                            );
-                            assert!(r.is_zero(), "dd != 0 at s = {}, t = {}", s, t);
                         }
 
                         target_d.quasi_inverse(t - 1).unwrap().apply(

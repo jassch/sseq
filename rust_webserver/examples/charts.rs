@@ -2,7 +2,8 @@ use algebra::module::OperationGeneratorPair;
 use chart::{Backend as _, TikzBackend as Backend};
 use ext::{
     chain_complex::ChainComplex,
-    utils::{construct, iter_stems},
+    resolution::Resolution,
+    utils::{construct, get_config, iter_stems_f},
 };
 use ext_webserver::actions::SseqChoice;
 use ext_webserver::sseq::Sseq;
@@ -10,7 +11,6 @@ use fp::{prime::ValidPrime, vector::FpVector};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::time::Instant;
 
 const TWO: ValidPrime = ValidPrime::new(2);
 
@@ -18,7 +18,7 @@ fn main() -> error::Result<()> {
     let module_file_name: String = query::with_default("Module", "S_2", Ok);
 
     let max_s = query::with_default("Max s", "7", Ok);
-    let max_t = query::with_default("Max t", "30", Ok);
+    let max_f = query::with_default("Max f", "30", Ok);
 
     let save_file: Option<String> = query::optional("Resolution save file", Ok);
 
@@ -33,26 +33,13 @@ fn main() -> error::Result<()> {
         save_file.as_deref(),
     )?;
 
-    if !resolution.has_computed_bidegree(max_s, max_t) {
-        print!("Resolving module: ");
-        let start = Instant::now();
-
-        #[cfg(not(feature = "concurrent"))]
-        resolution.compute_through_bidegree(max_s, max_t);
-
-        #[cfg(feature = "concurrent")]
-        resolution.compute_through_bidegree_concurrent(max_s, max_t, &bucket);
-
-        println!("{:.2?}", start.elapsed());
-    }
-
     let mut sseq = Sseq::new(TWO, SseqChoice::Main, 0, 0, None);
 
     for i in 0..3 {
         sseq.add_product_type(&format!("h{}", i), (1 << i) - 1, 1, true, true);
     }
 
-    for (s, f, t) in iter_stems(max_s, max_t) {
+    for (s, f, t) in iter_stems_f(max_s, max_f) {
         let num_gens = resolution.module(s).number_of_gens_in_degree(t);
         sseq.set_class(f, s as i32, num_gens);
 
