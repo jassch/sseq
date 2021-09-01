@@ -142,8 +142,12 @@ impl<T: Load> Load for Option<T> {
 
 impl Save for String {
     fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
-        unsafe {
-            self.clone().as_mut_vec().save(buffer)
+        self.len().save(buffer)?;
+        let written = buffer.write(self.as_bytes())?;
+        if written < self.len() {
+            Err(io::Error::new(io::ErrorKind::Other, "Failed to completely write string"))
+        } else {
+            Ok(())
         }
     }
 }
@@ -151,9 +155,14 @@ impl Save for String {
 impl Load for String {
     type AuxData = ();
     fn load(buffer: &mut impl Read, _data: &Self::AuxData) -> io::Result<String> {
-        let vec: Vec<u8> = <Vec<u8> as Load>::load(buffer, &())?;
-        unsafe {
-            Ok(String::from_utf8_unchecked(vec))
+        let size = usize::load(buffer, &())?;
+        let mut bytes : Vec<u8> = vec![0; size];
+        buffer.read_exact(&mut bytes)?;
+        match String::from_utf8(bytes) {
+            Ok(str) => Ok(str),
+            Err(_from_utf8_err) => {
+                Err(io::Error::new(io::ErrorKind::Other, "Failed to convert bytes to valid UTF8 string"))
+            }
         }
     }
 }
