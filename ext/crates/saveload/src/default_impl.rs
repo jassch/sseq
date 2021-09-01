@@ -58,7 +58,7 @@ macro_rules! impl_num {
     }
 }
 
-impl_num!(i32, i64, isize, u32, u64, usize);
+impl_num!(i32, i64, isize, u32, u64, usize, u8, i8, u16, i16);
 
 impl<T: Save> Save for Vec<T> {
     fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
@@ -136,6 +136,24 @@ impl<T: Load> Load for Option<T> {
             Ok(Some(T::load(buffer, data.as_ref().unwrap())?))
         } else {
             Ok(None)
+        }
+    }
+}
+
+impl Save for String {
+    fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
+        unsafe {
+            self.clone().as_mut_vec().save(buffer)
+        }
+    }
+}
+
+impl Load for String {
+    type AuxData = ();
+    fn load(buffer: &mut impl Read, _data: &Self::AuxData) -> io::Result<String> {
+        let vec: Vec<u8> = <Vec<u8> as Load>::load(buffer, &())?;
+        unsafe {
+            Ok(String::from_utf8_unchecked(vec))
         }
     }
 }

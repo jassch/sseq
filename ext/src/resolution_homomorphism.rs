@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::io;
+use std::io::{Read,Write};
 
 use crate::chain_complex::{AugmentedChainComplex, FreeChainComplex};
 use crate::resolution::Resolution;
@@ -9,6 +11,8 @@ use algebra::SteenrodAlgebra;
 use fp::matrix::Matrix;
 use fp::vector::{FpVector, SliceMut};
 use once::OnceBiVec;
+
+use saveload::{Load, Save};
 
 #[cfg(feature = "concurrent")]
 use {
@@ -29,6 +33,49 @@ where
     pub shift_s: u32,
     pub shift_t: i32,
 }
+
+impl <CC1, CC2> Save for ResolutionHomomorphism<CC1, CC2> 
+where
+    CC1: FreeChainComplex<Algebra = <CC2::Module as Module>::Algebra>,
+    CC2: AugmentedChainComplex,
+{
+    fn save(&self, buf: &mut impl Write) -> io::Result<()> {
+        self.name.save(buf)?;
+        self.maps.min_degree().save(buf)?;
+        self.maps.save(buf)?;
+        self.shift_s.save(buf)?;
+        self.shift_t.save(buf)?;
+        Ok(())
+    }
+}
+
+impl <CC1, CC2> Load for ResolutionHomomorphism<CC1, CC2> 
+where
+    CC1: FreeChainComplex<Algebra = <CC2::Module as Module>::Algebra>,
+    CC2: AugmentedChainComplex,
+{
+    type AuxData = (Arc<CC1>, Arc<CC2>, <FreeModuleHomomorphism<CC2::Module> as Load>::AuxData);
+
+    fn load(buf: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
+        let (source_ref, target_ref, hom_data) = data;
+        let name = String::load(buf, &())?;
+        let min_degree = i32::load(buf, &())?;
+        let bivec_data = (min_degree, hom_data.clone());
+        let maps = <OnceBiVec<FreeModuleHomomorphism<CC2::Module>> as Load>::load(buf, &bivec_data)?;
+        let shift_s = u32::load(buf, &())?;
+        let shift_t = i32::load(buf, &())?;
+        Ok(ResolutionHomomorphism {
+            name,
+            source: source_ref.clone(),
+            target: target_ref.clone(),
+            maps,
+            shift_s,
+            shift_t,
+        })
+    }
+}
+
+
 
 impl<CC1, CC2> ResolutionHomomorphism<CC1, CC2>
 where
