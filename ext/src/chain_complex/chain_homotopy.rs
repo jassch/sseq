@@ -4,6 +4,9 @@ use algebra::module::Module;
 use fp::prime::ValidPrime;
 use fp::vector::FpVector;
 use once::OnceVec;
+use saveload::{Save,Load};
+use std::io;
+use std::io::{Write, Read};
 use std::sync::Mutex;
 
 #[cfg(feature = "concurrent")]
@@ -253,4 +256,63 @@ impl<
         })
         .unwrap();
     }
+}
+
+/*
+pub struct ChainHomotopy<
+    'a,
+    S: FreeChainComplex,
+    T: ChainComplex,
+    F: Fn(u32, i32, usize, &mut FpVector),
+> {
+    source: &'a S,
+    target: &'a T,
+    /// The $s$ shift of the original chain map $f - g$.
+    shift_s: u32,
+    /// The $t$ shift of the original chain map $f - g$.
+    shift_t: i32,
+    /// A function that given (s, t, idx, result), adds (f - g)(x_{s, t, i}), to `result`.
+    map: F,
+    lock: Mutex<()>,
+    /// Homotopies, indexed by the filtration of the target of f - g.
+    homotopies: OnceVec<FreeModuleHomomorphism<T::Module>>,
+}
+*/
+
+impl <'a, S, T, F> Save for ChainHomotopy<'a, S, T, F> 
+where
+    S: FreeChainComplex,
+    T: ChainComplex,
+    F: Fn(u32, i32, usize, &mut FpVector),
+{
+    fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
+        self.homotopies.save(buffer)?;
+        Ok(())
+    }
+
+}
+
+impl <'a, S, T, F> Load for ChainHomotopy<'a, S, T, F>
+where
+    S: FreeChainComplex,
+    T: ChainComplex,
+    F: Fn(u32, i32, usize, &mut FpVector) + Clone,
+{
+    /// (source, target, shift_s, shift_t, map)
+    type AuxData = (&'a S, &'a T, u32, i32, F, <OnceVec<FreeModuleHomomorphism<T::Module>> as Load>::AuxData);
+
+    fn load(buffer: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
+        let (source, target, shift_s, shift_t, map, htpy_auxdata) = data;
+        let homotopies = <OnceVec<FreeModuleHomomorphism<T::Module>> as Load>::load(buffer, htpy_auxdata)?;
+        Ok(ChainHomotopy {
+            source,
+            target,
+            shift_s: *shift_s,
+            shift_t: *shift_t,
+            map: map.clone(),
+            lock: Mutex::new(()),
+            homotopies,
+        })
+    }
+
 }
