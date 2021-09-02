@@ -39,16 +39,15 @@ where
     CC1: FreeChainComplex<Algebra = <CC2::Module as Module>::Algebra>,
     CC2: AugmentedChainComplex,
 {
-    fn save(&self, buf: &mut impl Write) -> io::Result<()> {
-        self.name.save(buf)?;
-        self.shift_s.save(buf)?;
-        self.shift_t.save(buf)?;
+    fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
+        self.name.save(buffer)?;
+        self.shift_s.save(buffer)?;
+        self.shift_t.save(buffer)?;
         //self.maps.min_degree().save(buf)?; min_degree == shift_s
-        // len is smallest index i so that v[i] is not defined
-        // save the number of elements we're saving
-        (self.maps.len() - self.maps.min_degree()).save(buf)?;
+        let elts: usize = self.maps.data.len();
+        elts.save(buffer)?;
         for map in self.maps.iter() {
-            map.save(buf)?;
+            map.save(buffer)?;
         }
         Ok(())
     }
@@ -61,19 +60,19 @@ where
 {
     type AuxData = (Arc<CC1>, Arc<CC2>);
 
-    fn load(buf: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
+    fn load(buffer: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
         let (source_ref, target_ref) = data;
-        let name = String::load(buf, &())?;
-        let shift_s = u32::load(buf, &())?;
+        let name = String::load(buffer, &())?;
+        let shift_s = u32::load(buffer, &())?;
         let shift_s_signed = shift_s as i32;
-        let shift_t = i32::load(buf, &())?;
+        let shift_t = i32::load(buffer, &())?;
         //let min_degree = i32::load(buf, &())?;
-        let elts = i32::load(buf, &())?;
+        let elts = usize::load(buffer, &())?;
         let maps = OnceBiVec::new(shift_s_signed);
         for i in 0..elts as u32 {
             let mod_hom_i = 
                 <FreeModuleHomomorphism<CC2::Module> as Load>
-                    ::load(buf, &(source_ref.module(i+shift_s), target_ref.module(i), shift_t))?;
+                    ::load(buffer, &(source_ref.module(i+shift_s), target_ref.module(i), shift_t))?;
             maps.push(mod_hom_i);
         }
         Ok(ResolutionHomomorphism {

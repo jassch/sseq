@@ -282,11 +282,15 @@ pub struct ChainHomotopy<
 impl <'a, S, T, F> Save for ChainHomotopy<'a, S, T, F> 
 where
     S: FreeChainComplex,
-    T: ChainComplex,
+    T: ChainComplex<Algebra = S::Algebra>,
     F: Fn(u32, i32, usize, &mut FpVector),
 {
     fn save(&self, buffer: &mut impl Write) -> io::Result<()> {
-        self.homotopies.save(buffer)?;
+        //self.homotopies.save(buffer)?;
+        self.homotopies.len().save(buffer)?;
+        for htpy in self.homotopies.iter() {
+            htpy.save(buffer)?;
+        }
         Ok(())
     }
 
@@ -295,15 +299,26 @@ where
 impl <'a, S, T, F> Load for ChainHomotopy<'a, S, T, F>
 where
     S: FreeChainComplex,
-    T: ChainComplex,
+    T: ChainComplex<Algebra = S::Algebra>,
     F: Fn(u32, i32, usize, &mut FpVector) + Clone,
 {
     /// (source, target, shift_s, shift_t, map)
-    type AuxData = (&'a S, &'a T, u32, i32, F, <OnceVec<FreeModuleHomomorphism<T::Module>> as Load>::AuxData);
+    type AuxData = (&'a S, &'a T, u32, i32, F);
 
     fn load(buffer: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
-        let (source, target, shift_s, shift_t, map, htpy_auxdata) = data;
-        let homotopies = <OnceVec<FreeModuleHomomorphism<T::Module>> as Load>::load(buffer, htpy_auxdata)?;
+        let (source, target, shift_s, shift_t, map) = data;
+        let elts = usize::load(buffer, &())?;
+        let homotopies = OnceVec::new();
+        //<OnceVec<FreeModuleHomomorphism<T::Module>> as Load>::load(buffer, htpy_auxdata)?;
+        for i in 0..elts as u32 {
+            // index s contains a map with these parameters
+            // self.source.module(s + self.shift_s),
+            // self.target.module(s + 1),
+            // self.shift_t,
+            let mod_hom_i = <FreeModuleHomomorphism<T::Module> as Load>
+                ::load(buffer, &(source.module(i + shift_s), target.module(i + 1), *shift_t))?;
+            homotopies.push(mod_hom_i);
+        }
         Ok(ChainHomotopy {
             source,
             target,
