@@ -41,10 +41,15 @@ where
 {
     fn save(&self, buf: &mut impl Write) -> io::Result<()> {
         self.name.save(buf)?;
-        self.maps.min_degree().save(buf)?;
-        self.maps.save(buf)?;
         self.shift_s.save(buf)?;
         self.shift_t.save(buf)?;
+        //self.maps.min_degree().save(buf)?; min_degree == shift_s
+        // len is smallest index i so that v[i] is not defined
+        // save the number of elements we're saving
+        (self.maps.len() - self.maps.min_degree()).save(buf)?;
+        for map in self.maps.iter() {
+            map.save(buf)?;
+        }
         Ok(())
     }
 }
@@ -54,16 +59,23 @@ where
     CC1: FreeChainComplex<Algebra = <CC2::Module as Module>::Algebra>,
     CC2: AugmentedChainComplex,
 {
-    type AuxData = (Arc<CC1>, Arc<CC2>, <FreeModuleHomomorphism<CC2::Module> as Load>::AuxData);
+    type AuxData = (Arc<CC1>, Arc<CC2>);
 
     fn load(buf: &mut impl Read, data: &Self::AuxData) -> io::Result<Self> {
-        let (source_ref, target_ref, hom_data) = data;
+        let (source_ref, target_ref) = data;
         let name = String::load(buf, &())?;
-        let min_degree = i32::load(buf, &())?;
-        let bivec_data = (min_degree, hom_data.clone());
-        let maps = <OnceBiVec<FreeModuleHomomorphism<CC2::Module>> as Load>::load(buf, &bivec_data)?;
         let shift_s = u32::load(buf, &())?;
+        let shift_s_signed = shift_s as i32;
         let shift_t = i32::load(buf, &())?;
+        //let min_degree = i32::load(buf, &())?;
+        let elts = i32::load(buf, &())?;
+        let maps = OnceBiVec::new(shift_s_signed);
+        for i in 0..elts as u32 {
+            let mod_hom_i = 
+                <FreeModuleHomomorphism<CC2::Module> as Load>
+                    ::load(buf, &(source_ref.module(i+shift_s), target_ref.module(i), shift_t))?;
+            maps.push(mod_hom_i);
+        }
         Ok(ResolutionHomomorphism {
             name,
             source: source_ref.clone(),
