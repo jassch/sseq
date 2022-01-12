@@ -81,11 +81,15 @@ impl<
 
         for source_s in self.shift_s..=max_source_s {
             let target_s = source_s - self.shift_s;
+            
+            //eprint!("Extending homotopy for module in source degree {}...", source_s);
             for source_t in self.homotopies[target_s as usize].next_degree()
                 ..=max_source_t - (max_source_s - source_s) as i32
             {
+                //eprint!(" t={}", source_t);
                 self.extend_step(source_s, source_t, &mut scratch);
             }
+            //eprintln!(" done.");
         }
     }
 
